@@ -1,0 +1,40 @@
+"Phrases"
+{
+	"Enable"
+	{
+		"ru"	"Вы включили звуки"
+		"en"	"You have turned on sounds"
+	}
+	"Disable"
+	{
+		"ru"	"Вы выключили звуки"
+		"en"	"You have turned off sounds"
+	}
+	"VIP"
+	{
+		"ru"	"Доступно только VIP игрокам."
+		"en"	"Available only to VIP players."
+	}
+	"Wait"
+	{
+		"#format"	"{1:.f}"
+		"ru"	"Подождите {1} сек."
+		"en"	"Wait {1} sec."
+	}
+	"PhraseMenu"
+	{
+		"ru"	"Меню фраз"
+		"en"	"Phrase Menu"
+	}
+	"Play"
+	{
+		"#format"	"{1:N},{2:s}"
+		"ru"	"{1} включил звук {2}"
+		"en"	"{1} played sound {2}"
+	}
+	"SoundIsPlaying"
+	{
+		"ru"	"Сейчас включён звук. Подождите."
+		"en"	"The sound is on now. Wait."
+	}
+}
