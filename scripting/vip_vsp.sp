@@ -1,82 +1,88 @@
 #pragma semicolon 1
 #pragma newdecls required
 
-#include <vip_core>
-#include <emitsoundany>
+#include <sdktools>
 #include <clientprefs>
+
+#include <vip_core>
 #include <multicolors>
 #include <soundlib>
 
-#define CONFIG_PATH "data/vip/modules/vsp.ini"
-#define MAX_SOUNDS 64
-
-public Plugin myinfo = {
-	name = "[VIP] Voice Sound Player",
-	author = "Danyas (Rewrited by who2101)"
-};
-
-enum struct sound_t {
-	char 	sName[128];			// Название звука в меню
-	char 	sPath[128];			// Путь к звуку
-	char 	sChatText[128];		// Название звука в чате
-	float 	fLength;			// Длительность звука
-	bool 	bAdmin;				// Звук будет доступен только ROOT админам
+enum struct Sound
+{
+	char 	name[128];		// Название звука в меню
+	char 	path[128];		// Путь к звуку
+	char 	text[128];		// Название звука в чате
+	float 	length;			// Длительность звука
 }
 
-sound_t hSoundList[MAX_SOUNDS];
-
 bool 
-	g_bEnabled[MAXPLAYERS+1];
+	g_bEnabled[MAXPLAYERS+1],
+	g_bLate;
 
-int iLastUsedSound[MAXPLAYERS + 1],
-	iStartSound, iEndSound;
+int
+	g_iStartSound,
+	g_iEndSound,
+	g_iLastUsedSound[MAXPLAYERS + 1];
 
-Handle gH_Cookie;
+Cookie g_hCookie;
+ConVar vsp_sound_delay;
+ArrayList g_hSoundList;
 
-ConVar hSoundDelay;
+public Plugin myinfo =
+{
+	name = "[VIP] Voice Sound Player",
+	author = "Danyas & who"
+};
+
+public APLRes AskPluginLoad2(Handle hMyself, bool bLate, char[] sError, int iErr_max)
+{
+	g_bLate = bLate;
+	return APLRes_Success;
+}
 
 public void OnPluginStart()
 {
 	LoadTranslations("vip_core.phrases.txt");
 	LoadTranslations("vip_vsp.phrases.txt");
 
-	gH_Cookie = RegClientCookie("vsp_enabled", "enabled cookies", CookieAccess_Protected);
-	
-	hSoundDelay = CreateConVar("vsp_sound_delay", "30.0");
+	g_hSoundList = new ArrayList(sizeof Sound);
+
+	g_hCookie = RegClientCookie("vsp_enabled", "", CookieAccess_Private);
+
+	vsp_sound_delay = CreateConVar("vsp_sound_delay", "30.0", "Через N секунд можно будет заново включить звук", _, true, 0.0, true, 60.0);
+
+	HookEvent("round_start", Event_Rounds);
+	HookEvent("round_end", Event_Rounds);
 
 	RegConsoleCmd("sm_snd", Command_Menu);
-	RegConsoleCmd("sm_offsnd", Command_Disable);
-	
-	HookEvent("round_start", OnRoundEvent);
-	HookEvent("round_end", OnRoundEvent);
+	RegConsoleCmd("sm_offsnd", Command_DisableSound);
 
-	for(int i = 1; i <= MaxClients; i++)
-		if(IsClientInGame(i) && !IsFakeClient(i) && AreClientCookiesCached(i))
-			OnClientCookiesCached(i);
-}
-
-public void OnRoundEvent(Event event, const char[] name, bool dontBroadcast)
-{
-	iEndSound = GetTime();
-}
-
-public void OnMapStart() {
-	char sBuff[192];
-	
-	LoadConfig();
-
-	for (int i = 0; i < MAX_SOUNDS; i++)
+	if(g_bLate)
 	{
-		if(hSoundList[i].sPath[0] == '\0')
-			continue;
-
-		PrecacheSoundAny(hSoundList[i].sPath);
-		FormatEx(sBuff, sizeof(sBuff), "sound/%s", hSoundList[i].sPath);
-		AddFileToDownloadsTable(sBuff);
+		for(int i = 1; i <= MaxClients; i++)
+		{
+			if(IsClientInGame(i) && !IsFakeClient(i) && AreClientCookiesCached(i))
+			{
+				OnClientCookiesCached(i);
+			}
+		}
 	}
 }
 
-public void VIP_OnVIPLoaded() {
+public void Event_Rounds(Event event, const char[] name, bool dontBroadcast)
+{
+	g_iEndSound = GetTime();
+}
+
+public void OnMapStart()
+{
+	g_hSoundList.Clear();
+	LoadSoundsConfig();
+}
+
+public void VIP_OnVIPLoaded()
+{
 	VIP_RegisterFeature("VoiceSoundPlayer", BOOL, SELECTABLE, OnSelectItem, _, OnDrawItem);
 }
 
@@ -92,66 +98,56 @@ public int OnDrawItem(int iClient, const char[] sFeatureName, int iStyle)
 	return iStyle;
 }
 
-public bool OnSelectItem(int client, const char[] sFeatureName) {
+public bool OnSelectItem(int client, const char[] sFeatureName)
+{
 	ShowMenu(client);
 
 	return false;
 }
 
-public void OnClientCookiesCached(int client) {
-	iLastUsedSound[client] = 0;
-	
-	char cookie[32];
-	GetClientCookie(client, gH_Cookie, cookie, sizeof(cookie));
+public void OnClientPutInServer(int client)
+{
+	g_iLastUsedSound[client] = 0;
+}
 
-	g_bEnabled[client] = cookie[0] == 0 ? true:!!StringToInt(cookie);
+public void OnClientCookiesCached(int client)
+{
+	char cookie[32];
+	GetClientCookie(client, g_hCookie, cookie, sizeof cookie);
+
+	g_bEnabled[client] = cookie[0] ? !!StringToInt(cookie) : true;
 
 	if(!cookie[0])
 	{
-		SetClientCookie(client, gH_Cookie, "1");
+		SetClientCookie(client, g_hCookie, "1");
 	}
 }
 
-public Action Command_Disable(int client, int args) {
+public Action Command_DisableSound(int client, int args)
+{
+	if(!client)
+	{
+		return Plugin_Handled;
+	}
+
 	g_bEnabled[client] = !g_bEnabled[client];
-	SetClientCookie(client, gH_Cookie, g_bEnabled[client] ? "1":"0");
+	SetClientCookie(client, g_hCookie, g_bEnabled[client] ? "1":"0");
 
 	CPrintToChat(client, "%T", g_bEnabled[client] ? "Enable" : "Disable", client);
 
 	return Plugin_Handled;
 }
 
-void ShowMenu(int client) {
-	Menu menu = new Menu(Menu_Handler);
-
-	menu.SetTitle("%T\n ", "PhraseMenu", client);
-
-	bool admin = CheckCommandAccess(client, NULL_STRING, ADMFLAG_ROOT, true);
-
-	for (int i = 0; i < MAX_SOUNDS; i++) {
-		if(hSoundList[i].sName[0] == '\0')
-			continue;
-
-		if(hSoundList[i].bAdmin && !admin)
-			continue;
-
-		char buff[8];
-		IntToString(i, buff, sizeof(buff));
-		menu.AddItem(buff, hSoundList[i].sName, hSoundList[i].sPath[0] ? ITEMDRAW_DEFAULT : ITEMDRAW_DISABLED);			
-	}
-
-	menu.ExitButton = true;
-	menu.Display(client, MENU_TIME_FOREVER);
-}
-
-public Action Command_Menu(int client, int args) {
+public Action Command_Menu(int client, int args)
+{
 	if(!client)
+	{
 		return Plugin_Handled;
+	}
 
 	if(VIP_GetClientFeatureStatus(client, "VoiceSoundPlayer") == NO_ACCESS)
 	{
 		CPrintToChat(client, "%T", "NO_ACCESS", client);
-
 		return Plugin_Handled;
 	}
 
@@ -160,82 +156,136 @@ public Action Command_Menu(int client, int args) {
 	return Plugin_Handled;
 }
 
-public int Menu_Handler(Menu menu, MenuAction action, int param, int param2) {
-	if(action == MenuAction_Select) {
-		int currentTime = GetTime();
+void ShowMenu(int client)
+{
+	Menu menu = new Menu(Handler_Menu);
+
+	menu.SetTitle("%T\n ", "Menu_Title", client);
+
+	Sound sound;
+
+	for (int i = 0; i < g_hSoundList.Length; i++)
+	{
+		g_hSoundList.GetArray(i, sound);
 		
-		if(currentTime >= iStartSound && currentTime < iEndSound)
+		if(!sound.name[0])
+		{
+			continue;
+		}
+
+		menu.AddItem(NULL_STRING, sound.name);			
+	}
+
+	menu.ExitButton = true;
+	menu.Display(client, MENU_TIME_FOREVER);
+}
+
+public int Handler_Menu(Menu menu, MenuAction action, int param, int param2)
+{
+	if(action == MenuAction_Select)
+	{
+		int currentTime = GetTime();
+
+		if(currentTime >= g_iStartSound && currentTime < g_iEndSound)
 		{
 			CPrintToChat(param, "%T", "SoundIsPlaying", param);
-
 			return 0;
 		}
 		
-		if(currentTime - iLastUsedSound[param] < hSoundDelay.FloatValue)
+		float delay = vsp_sound_delay.FloatValue;
+		
+		if(currentTime - g_iLastUsedSound[param] < delay)
 		{
-			CPrintToChat(param, "%T", "Wait", param, hSoundDelay.FloatValue - (currentTime - iLastUsedSound[param]));
+			CPrintToChat(param, "%T", "Wait", param, delay - (currentTime - g_iLastUsedSound[param]));
 
 			return 0;
 		}
 
-		char item[64];
-		menu.GetItem(param2, item, sizeof(item));
+		Sound sound;
+		g_hSoundList.GetArray(param2, sound);
 
-		int iPos = StringToInt(item);
-
-		for(int i = 1; i <= MaxClients; i++) if(IsClientInGame(i) && !IsFakeClient(i)) 
+		for(int i = 1; i <= MaxClients; i++)
 		{
-			if(g_bEnabled[i])
+			if(IsClientInGame(i) && !IsFakeClient(i)) 
 			{
-				EmitSoundToClientAny(i, hSoundList[iPos].sPath);
+				if(g_bEnabled[i])
+				{
+					EmitSoundToClient(i, sound.path);
+				}
+
+				CPrintToChat(i, "%T", "Play", i, param, sound.text);				
 			}
-				
-			CPrintToChat(i, "%T", "Play", i, param, hSoundList[iPos].sChatText);
 		}
 
-		iLastUsedSound[param] = currentTime;
-		iStartSound = currentTime;
-		iEndSound = iStartSound + RoundToNearest(hSoundList[iPos].fLength);
+		g_iLastUsedSound[param] = currentTime;
+		g_iStartSound = currentTime;
+		g_iEndSound = g_iStartSound + RoundToNearest(sound.length);
 		
 		Command_Menu(param, 0);
 	}
-	if(action == MenuAction_End)
+	else if(action == MenuAction_End)
+	{
 		delete menu;
+	}
 		
 	return 0;
 }
 
-void LoadConfig() {
-	char Buffer[128];
-	BuildPath(Path_SM, Buffer, sizeof(Buffer), CONFIG_PATH);
+void LoadSoundsConfig()
+{
+	char buffer[128];
+	BuildPath(Path_SM, buffer, sizeof buffer, "data/vip/modules/vsp.ini");
 
-	KeyValues KvZc = new KeyValues("Sound");
+	KeyValues kv = new KeyValues("Sound");
 
-	if(!KvZc.ImportFromFile(Buffer)) SetFailState("Конфиг %s отсутствует", Buffer);
-
-	KvZc.Rewind();
-
-	if(KvZc.GotoFirstSubKey())
+	if(!kv.ImportFromFile(buffer))
 	{
-		Handle hSound;
-		int i = 0;
-		do {
-			KvZc.GetSectionName(hSoundList[i].sName, sizeof(sound_t::sName));
-
-			KvZc.GetString("path", hSoundList[i].sPath, sizeof(sound_t::sPath));
-			KvZc.GetString("chat", hSoundList[i].sChatText, sizeof(sound_t::sChatText));
-			
-			if((hSound = OpenSoundFile(hSoundList[i].sPath)) != INVALID_HANDLE)
-			{
-				hSoundList[i].fLength = GetSoundLengthFloat(hSound);
-				delete hSound;
-			}
-			
-			hSoundList[i].bAdmin = !!KvZc.GetNum("admin", 0);
-				
-			i++;
-		} while(KvZc.GotoNextKey());
+		SetFailState("Конфиг %s отсутствует", buffer);
 	}
 
-	delete KvZc;
+	kv.Rewind();
+
+	if(kv.GotoFirstSubKey())
+	{
+		Handle hSoundFile;
+		int i = 0;
+		
+		Sound sound;
+
+		do
+		{
+			kv.GetSectionName(sound.name, sizeof Sound::name);
+
+			kv.GetString("path", sound.path, sizeof Sound::path);
+
+			if(!sound.path[0])
+			{
+				continue;
+			}
+
+			PrecacheSound(sound.path);
+			
+			Format(buffer, sizeof buffer, "sound/%s", sound.path);
+			AddFileToDownloadsTable(buffer);
+
+			kv.GetString("chat", sound.text, sizeof Sound::text);
+			
+			hSoundFile = OpenSoundFile(sound.path);
+			
+			if(hSoundFile == INVALID_HANDLE)
+			{
+				continue;
+			}
+
+			sound.length = GetSoundLengthFloat(hSoundFile);
+			
+			g_hSoundList.PushArray(sound, sizeof sound);
+
+			delete hSoundFile;
+				
+			i++;
+		} while(kv.GotoNextKey());
+	}
+
+	delete kv;
 }

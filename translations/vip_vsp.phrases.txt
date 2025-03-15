@@ -21,7 +21,7 @@
 		"ru"	"Подождите {1} сек."
 		"en"	"Wait {1} sec."
 	}
-	"PhraseMenu"
+	"Menu_Title"
 	{
 		"ru"	"Меню фраз"
 		"en"	"Phrase Menu"
