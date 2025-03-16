@@ -10,10 +10,18 @@
 
 enum struct Sound
 {
-	char 	name[128];		// Название звука в меню
-	char 	path[128];		// Путь к звуку
-	char 	text[128];		// Название звука в чате
-	float 	length;			// Длительность звука
+	// Название звука в меню
+	char name[128];
+
+	// Путь к звуку
+	char path[PLATFORM_MAX_PATH];
+
+	// Название звука в чате
+	// Если не прописан в конфиге, то в чат будет писаться название из меню
+	char text[128];
+
+	// Длительность звука
+	float length;
 }
 
 bool 
@@ -32,7 +40,8 @@ ArrayList g_hSoundList;
 public Plugin myinfo =
 {
 	name = "[VIP] Voice Sound Player",
-	author = "Danyas & who"
+	author = "Danyas & who",
+	version = "1.0.0"
 };
 
 public APLRes AskPluginLoad2(Handle hMyself, bool bLate, char[] sError, int iErr_max)
@@ -50,7 +59,7 @@ public void OnPluginStart()
 
 	g_hCookie = RegClientCookie("vsp_enabled", "", CookieAccess_Private);
 
-	vsp_sound_delay = CreateConVar("vsp_sound_delay", "30.0", "Через N секунд можно будет заново включить звук", _, true, 0.0, true, 60.0);
+	vsp_sound_delay = CreateConVar("vsp_sound_delay", "30.0", "Через N секунд можно будет включить новый звук", _, true, 0.0, true, 60.0);
 
 	HookEvent("round_start", Event_Rounds);
 	HookEvent("round_end", Event_Rounds);
@@ -115,10 +124,13 @@ public void OnClientCookiesCached(int client)
 	char cookie[32];
 	GetClientCookie(client, g_hCookie, cookie, sizeof cookie);
 
-	g_bEnabled[client] = cookie[0] ? !!StringToInt(cookie) : true;
-
-	if(!cookie[0])
+	if(cookie[0])
 	{
+		g_bEnabled[client] = !!StringToInt(cookie);
+	}
+	else
+	{
+		g_bEnabled[client] = true;
 		SetClientCookie(client, g_hCookie, "1");
 	}
 }
@@ -131,7 +143,7 @@ public Action Command_DisableSound(int client, int args)
 	}
 
 	g_bEnabled[client] = !g_bEnabled[client];
-	SetClientCookie(client, g_hCookie, g_bEnabled[client] ? "1":"0");
+	SetClientCookie(client, g_hCookie, g_bEnabled[client] ? "1" : "0");
 
 	CPrintToChat(client, "%T", g_bEnabled[client] ? "Enable" : "Disable", client);
 
@@ -184,20 +196,19 @@ public int Handler_Menu(Menu menu, MenuAction action, int param, int param2)
 {
 	if(action == MenuAction_Select)
 	{
-		int currentTime = GetTime();
+		int iCurrentTime = GetTime();
 
-		if(currentTime >= g_iStartSound && currentTime < g_iEndSound)
+		if(iCurrentTime >= g_iStartSound && iCurrentTime < g_iEndSound)
 		{
 			CPrintToChat(param, "%T", "SoundIsPlaying", param);
 			return 0;
 		}
-		
-		float delay = vsp_sound_delay.FloatValue;
-		
-		if(currentTime - g_iLastUsedSound[param] < delay)
-		{
-			CPrintToChat(param, "%T", "Wait", param, delay - (currentTime - g_iLastUsedSound[param]));
 
+		float delay = vsp_sound_delay.FloatValue;
+
+		if(iCurrentTime - g_iLastUsedSound[param] < delay)
+		{
+			CPrintToChat(param, "%T", "Wait", param, delay - (iCurrentTime - g_iLastUsedSound[param]));
 			return 0;
 		}
 
@@ -213,21 +224,21 @@ public int Handler_Menu(Menu menu, MenuAction action, int param, int param2)
 					EmitSoundToClient(i, sound.path);
 				}
 
-				CPrintToChat(i, "%T", "Play", i, param, sound.text);				
+				CPrintToChat(i, "%T", "Play", i, param, sound.text[0] ? sound.text : sound.name);	
 			}
 		}
 
-		g_iLastUsedSound[param] = currentTime;
-		g_iStartSound = currentTime;
+		g_iLastUsedSound[param] = iCurrentTime + RoundToNearest(sound.length);
+		g_iStartSound = iCurrentTime;
 		g_iEndSound = g_iStartSound + RoundToNearest(sound.length);
-		
+
 		Command_Menu(param, 0);
 	}
 	else if(action == MenuAction_End)
 	{
 		delete menu;
 	}
-		
+
 	return 0;
 }
 
@@ -249,40 +260,36 @@ void LoadSoundsConfig()
 	{
 		Handle hSoundFile;
 		int i = 0;
-		
+
 		Sound sound;
 
 		do
 		{
-			kv.GetSectionName(sound.name, sizeof Sound::name);
-
+			kv.GetString("menu", sound.name, sizeof Sound::name);
 			kv.GetString("path", sound.path, sizeof Sound::path);
+			kv.GetString("text", sound.text, sizeof Sound::text);
 
-			if(!sound.path[0])
+			if(sound.path[0])
 			{
-				continue;
+				PrecacheSound(sound.path);
+	
+				Format(buffer, sizeof buffer, "sound/%s", sound.path);
+				AddFileToDownloadsTable(buffer);
+
+				hSoundFile = OpenSoundFile(sound.path);
+	
+				if(hSoundFile == INVALID_HANDLE)
+				{
+					continue;
+				}
+	
+				sound.length = GetSoundLengthFloat(hSoundFile);
+	
+				g_hSoundList.PushArray(sound, sizeof sound);
+	
+				delete hSoundFile;
 			}
 
-			PrecacheSound(sound.path);
-			
-			Format(buffer, sizeof buffer, "sound/%s", sound.path);
-			AddFileToDownloadsTable(buffer);
-
-			kv.GetString("chat", sound.text, sizeof Sound::text);
-			
-			hSoundFile = OpenSoundFile(sound.path);
-			
-			if(hSoundFile == INVALID_HANDLE)
-			{
-				continue;
-			}
-
-			sound.length = GetSoundLengthFloat(hSoundFile);
-			
-			g_hSoundList.PushArray(sound, sizeof sound);
-
-			delete hSoundFile;
-				
 			i++;
 		} while(kv.GotoNextKey());
 	}
