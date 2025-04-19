@@ -33,7 +33,9 @@ int
 	g_iEndSound,
 	g_iLastUsedSound[MAXPLAYERS + 1];
 
-Cookie g_hCookie;
+Cookie
+	g_hEnabled;
+
 ConVar vsp_sound_delay;
 ArrayList g_hSoundList;
 
@@ -57,7 +59,7 @@ public void OnPluginStart()
 
 	g_hSoundList = new ArrayList(sizeof Sound);
 
-	g_hCookie = RegClientCookie("vsp_enabled", "", CookieAccess_Private);
+	g_hEnabled = RegClientCookie("vsp_enabled", "", CookieAccess_Private);
 
 	vsp_sound_delay = CreateConVar("vsp_sound_delay", "30.0", "Через N секунд можно будет включить новый звук", _, true, 0.0, true, 60.0);
 
@@ -122,7 +124,7 @@ public void OnClientPutInServer(int client)
 public void OnClientCookiesCached(int client)
 {
 	char cookie[32];
-	GetClientCookie(client, g_hCookie, cookie, sizeof cookie);
+	GetClientCookie(client, g_hEnabled, cookie, sizeof cookie);
 
 	if(cookie[0])
 	{
@@ -131,7 +133,7 @@ public void OnClientCookiesCached(int client)
 	else
 	{
 		g_bEnabled[client] = true;
-		SetClientCookie(client, g_hCookie, "1");
+		SetClientCookie(client, g_hEnabled, "1");
 	}
 }
 
@@ -143,7 +145,7 @@ public Action Command_DisableSound(int client, int args)
 	}
 
 	g_bEnabled[client] = !g_bEnabled[client];
-	SetClientCookie(client, g_hCookie, g_bEnabled[client] ? "1" : "0");
+	SetClientCookie(client, g_hEnabled, g_bEnabled[client] ? "1" : "0");
 
 	CPrintToChat(client, "%T", g_bEnabled[client] ? "Enable" : "Disable", client);
 
